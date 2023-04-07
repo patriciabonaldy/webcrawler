@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"log"
@@ -22,18 +23,18 @@ type crawler struct {
 }
 
 var (
-	invalidURLError  = fmt.Errorf("invalid url")
-	invalidDataError = fmt.Errorf("invalid data")
-	errorGettingURL  = fmt.Errorf("error getting url")
+	errInvalidURL  = fmt.Errorf("invalid url")
+	errInvalidData = fmt.Errorf("invalid data")
+	errGettingURL  = fmt.Errorf("error getting url")
 )
 
-func NewCrawler() *crawler {
-	return &crawler{client: httpclient.New(), crawled: make(map[string]bool), log: log.Default()}
+func NewCrawler(log *log.Logger) *crawler {
+	return &crawler{client: httpclient.New(), crawled: make(map[string]bool), log: log}
 }
 
-func (c *crawler) Run(url string) {
+func (c *crawler) Run(ctx context.Context, url string) {
 	linksChannel := make(chan string)
-	err := c.process(url, linksChannel)
+	err := c.process(ctx, url, linksChannel)
 	if err != nil {
 		c.log.Printf("error processing url: %s\n", url)
 	}
@@ -42,25 +43,33 @@ func (c *crawler) Run(url string) {
 	c.registerURL(url)
 
 	var wg sync.WaitGroup
-	for link := range linksChannel {
-		wg.Add(1)
+	for { //nolint:wsl
+		select {
+		case link := <-linksChannel:
+			wg.Add(1)
+			go func(wg *sync.WaitGroup, lk string) { //nolint:wsl
+				defer wg.Done()
 
-		go func(wg *sync.WaitGroup, lk string) {
-			defer wg.Done()
-
-			errP := c.process(lk, linksChannel)
-			if errP != nil {
-				c.log.Printf("error processing sub url %s, error: %v\n", lk, errP)
-				return
-			}
-		}(&wg, link)
+				errP := c.process(ctx, lk, linksChannel)
+				if errP != nil {
+					c.log.Printf("error processing sub url %s, error: %v\n", lk, errP)
+					return
+				}
+			}(&wg, link)
+		case <-ctx.Done():
+			return
+		}
 	}
 
 	wg.Wait()
 }
 
-func (c *crawler) process(url string, linksChannel chan string) error {
-	resp, err := c.getContent(url)
+func (c *crawler) process(ctx context.Context, url string, linksChannel chan string) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+
+	resp, err := c.getContent(ctx, url)
 	if err != nil {
 		return err
 	}
@@ -68,10 +77,10 @@ func (c *crawler) process(url string, linksChannel chan string) error {
 	return c.readBody(resp, linksChannel)
 }
 
-func (c *crawler) getContent(url string) (*httpclient.Response, error) {
-	resp, err := c.client.Get(url)
+func (c *crawler) getContent(ctx context.Context, url string) (*httpclient.Response, error) {
+	resp, err := c.client.Get(ctx, url)
 	if err != nil || resp.StatusCode >= 400 {
-		return nil, errorGettingURL
+		return nil, errGettingURL
 	}
 
 	return resp, nil
@@ -135,7 +144,7 @@ func (c *crawler) encodeBytes(resp *httpclient.Response) error {
 		strings.Contains(contentType, "audio/") ||
 		strings.Contains(contentType, "font/") {
 		// skip these types.
-		return invalidURLError
+		return errInvalidURL
 	}
 
 	r, err := charset.NewReader(bytes.NewReader(resp.Body), contentType)

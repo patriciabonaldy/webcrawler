@@ -1,6 +1,7 @@
 package httpclient
 
 import (
+	"context"
 	"io"
 	"log"
 	"net/http"
@@ -8,7 +9,7 @@ import (
 )
 
 type Client interface {
-	Get(url string) (*Response, error)
+	Get(ctx context.Context, url string) (*Response, error)
 }
 
 // Response is the representation of a HTTP response made by a Collector
@@ -32,12 +33,12 @@ func New() *client {
 }
 
 // Get connects to the passed webpage and returns the ioReader
-func (c *client) Get(url string) (*Response, error) {
+func (c *client) Get(ctx context.Context, url string) (*Response, error) {
 	client := http.Client{
 		Timeout: c.timeout,
 	}
 
-	request, err := http.NewRequest("GET", url, nil)
+	request, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		c.log.Println("error creating new request: ", err)
 		return &Response{}, err
