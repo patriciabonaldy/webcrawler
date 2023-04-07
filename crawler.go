@@ -34,6 +34,7 @@ func NewCrawler(log *log.Logger) *crawler {
 
 func (c *crawler) Run(ctx context.Context, url string) {
 	linksChannel := make(chan string)
+
 	err := c.process(ctx, url, linksChannel)
 	if err != nil {
 		c.log.Printf("error processing url: %s\n", url)
@@ -74,7 +75,16 @@ func (c *crawler) process(ctx context.Context, url string, linksChannel chan str
 		return err
 	}
 
-	return c.readBody(resp, linksChannel)
+	err = c.readBody(resp, linksChannel)
+	if err != nil {
+		return err
+	}
+
+	return downloadPage(resp)
+}
+
+func downloadPage(resp *httpclient.Response) error {
+	return resp.Save()
 }
 
 func (c *crawler) getContent(ctx context.Context, url string) (*httpclient.Response, error) {

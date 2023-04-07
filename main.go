@@ -16,12 +16,12 @@ func main() {
 	go func() {
 		sigint := make(chan os.Signal, 1)
 		signal.Notify(sigint, syscall.SIGINT, syscall.SIGTERM)
-		<-sigint
+		sing := <-sigint
 
-		log.Println("shutdown service")
+		log.Printf("service is interrupted by signal %s", sing.String())
 		cancel()
 	}()
 
 	crawler := NewCrawler(log)
-	crawler.Run(ctx, "https://learnenglish.britishcouncil.org/")
+	crawler.Run(ctx, "https://llorllale.github.io/posts/golang-generics-first-look/")
 }
