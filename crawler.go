@@ -8,16 +8,24 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/patriciabonaldy/webcrawler/httpclient"
 	"golang.org/x/net/html"
 	"golang.org/x/net/html/charset"
+
+	"github.com/patriciabonaldy/webcrawler/httpclient"
 )
 
 type crawler struct {
+	mux     sync.Mutex
 	client  httpclient.Client
 	crawled map[string]bool
 	log     *log.Logger
 }
+
+var (
+	invalidURLError  = fmt.Errorf("invalid url")
+	invalidDataError = fmt.Errorf("invalid data")
+	errorGettingURL  = fmt.Errorf("error getting url")
+)
 
 func NewCrawler() *crawler {
 	return &crawler{client: httpclient.New(), crawled: make(map[string]bool), log: log.Default()}
@@ -27,8 +35,11 @@ func (c *crawler) Run(url string) {
 	linksChannel := make(chan string)
 	err := c.process(url, linksChannel)
 	if err != nil {
-		c.log.Println("error processing url")
+		c.log.Printf("error processing url: %s\n", url)
 	}
+
+	// we registered the url parent
+	c.registerURL(url)
 
 	var wg sync.WaitGroup
 	for link := range linksChannel {
@@ -59,11 +70,27 @@ func (c *crawler) process(url string, linksChannel chan string) error {
 
 func (c *crawler) getContent(url string) (*httpclient.Response, error) {
 	resp, err := c.client.Get(url)
-	if err != nil || resp.StatusCode >= 500 {
-		return nil, err
+	if err != nil || resp.StatusCode >= 400 {
+		return nil, errorGettingURL
 	}
 
 	return resp, nil
+}
+
+func (c *crawler) registerURL(url string) {
+	defer c.mux.Unlock()
+
+	c.mux.Lock()
+	c.crawled[url] = true
+}
+
+func (c *crawler) existsURL(url string) bool {
+	defer c.mux.Unlock()
+
+	c.mux.Lock()
+	_, exists := c.crawled[url]
+
+	return exists
 }
 
 func (c *crawler) readBody(resp *httpclient.Response, linksChannel chan string) error {
@@ -73,30 +100,30 @@ func (c *crawler) readBody(resp *httpclient.Response, linksChannel chan string) 
 	}
 
 	tokenizer := html.NewTokenizer(bytes.NewReader(resp.Body))
-	for {
+	for { //nolint:wsl
 		tokenType := tokenizer.Next()
 		if tokenType == html.ErrorToken {
-			c.log.Println("invalid data")
-			return fmt.Errorf("invalid data")
+			break
 		}
 
 		token := tokenizer.Token()
 
 		if tokenType == html.StartTagToken && token.DataAtom.String() == "a" {
-			link := linksFromToken(token, resp.URL)
+			link := c.linksFromToken(token, resp.URL)
 			if strings.EqualFold(resp.URL, link) {
 				continue
 			}
 
-			if link != "" {
+			if link != "" && !c.existsURL(link) {
+				c.registerURL(link)
+				c.log.Printf("processing link %s\n", link)
+
 				go func(l string) {
-					c.log.Printf("Processing url %s", l)
 					linksChannel <- l
 				}(link)
 			}
 		}
 	}
-	c.log.Printf("url %s processed", resp.URL)
 
 	return nil
 }
@@ -108,7 +135,7 @@ func (c *crawler) encodeBytes(resp *httpclient.Response) error {
 		strings.Contains(contentType, "audio/") ||
 		strings.Contains(contentType, "font/") {
 		// skip these types.
-		return nil
+		return invalidURLError
 	}
 
 	r, err := charset.NewReader(bytes.NewReader(resp.Body), contentType)
@@ -126,19 +153,35 @@ func (c *crawler) encodeBytes(resp *httpclient.Response) error {
 	return nil
 }
 
-func linksFromToken(token html.Token, url string) string {
+func (c *crawler) linksFromToken(token html.Token, url string) string {
 	for _, attr := range token.Attr {
 		if attr.Key == "href" {
 			link := attr.Val
+			if !validateLink(link) {
+				c.log.Printf("skipping link %s\n", link)
+				continue
+			}
+
 			tl := parseURL(url, link)
 			if tl == "" {
 				break
 			}
 
+			c.log.Printf("link found %s", link)
+
 			return tl
 		}
 	}
-	return ""
+
+	return "" //nolint:wsl
+}
+
+func validateLink(link string) bool {
+	if strings.Contains(link, ".pdf") || strings.Contains(link, ".html") || link == "#search" || link == "#signin" || link == "/" {
+		return false
+	}
+
+	return true
 }
 
 func parseURL(url string, link string) string {
