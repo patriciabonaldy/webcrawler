@@ -1,25 +1,25 @@
-package main
+package internal
 
 import (
 	"bytes"
 	"context"
 	"fmt"
 	"io"
-	"log"
 	"strings"
 	"sync"
 
 	"golang.org/x/net/html"
 	"golang.org/x/net/html/charset"
 
-	"github.com/patriciabonaldy/webcrawler/httpclient"
+	"github.com/patriciabonaldy/webcrawler/internal/httpclient"
+	"github.com/patriciabonaldy/webcrawler/internal/platform/logger"
 )
 
 type crawler struct {
 	mux     sync.Mutex
 	client  httpclient.Client
 	crawled map[string]bool
-	log     *log.Logger
+	log     logger.Logger
 }
 
 var (
@@ -28,7 +28,7 @@ var (
 	errGettingURL  = fmt.Errorf("error getting url")
 )
 
-func NewCrawler(log *log.Logger) *crawler {
+func NewCrawler(log logger.Logger) *crawler {
 	return &crawler{client: httpclient.New(), crawled: make(map[string]bool), log: log}
 }
 
@@ -37,7 +37,7 @@ func (c *crawler) Run(ctx context.Context, url string) {
 
 	err := c.process(ctx, url, linksChannel)
 	if err != nil {
-		c.log.Printf("error processing url: %s\n", url)
+		c.log.Infof("error processing url: %s\n", url)
 	}
 
 	// we registered the url parent
@@ -48,12 +48,13 @@ func (c *crawler) Run(ctx context.Context, url string) {
 		select {
 		case link := <-linksChannel:
 			wg.Add(1)
+
 			go func(wg *sync.WaitGroup, lk string) { //nolint:wsl
 				defer wg.Done()
 
 				errP := c.process(ctx, lk, linksChannel)
 				if errP != nil {
-					c.log.Printf("error processing sub url %s, error: %v\n", lk, errP)
+					c.log.Infof("error processing sub url %s, error: %v\n", lk, errP)
 					return
 				}
 			}(&wg, link)
@@ -135,7 +136,7 @@ func (c *crawler) readBody(resp *httpclient.Response, linksChannel chan string) 
 
 			if link != "" && !c.existsURL(link) {
 				c.registerURL(link)
-				c.log.Printf("processing link %s\n", link)
+				c.log.Infof("processing link %s\n", link)
 
 				go func(l string) {
 					linksChannel <- l
@@ -177,7 +178,7 @@ func (c *crawler) linksFromToken(token html.Token, url string) string {
 		if attr.Key == "href" {
 			link := attr.Val
 			if !validateLink(link) {
-				c.log.Printf("skipping link %s\n", link)
+				c.log.Infof("skipping link %s\n", link)
 				continue
 			}
 
@@ -186,7 +187,7 @@ func (c *crawler) linksFromToken(token html.Token, url string) string {
 				break
 			}
 
-			c.log.Printf("link found %s", link)
+			c.log.Infof("link found %s", link)
 
 			return tl
 		}
