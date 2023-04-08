@@ -52,6 +52,3 @@ build:
 	go build -o ./$(APP_NAME) ./cmd
 
 setup: all build
-
-run:
-	@./webcrawler

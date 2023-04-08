@@ -1,6 +1,6 @@
 module github.com/patriciabonaldy/webcrawler
 
-go 1.20
+go 1.19
 
 require (
 	github.com/kennygrant/sanitize v1.2.4
