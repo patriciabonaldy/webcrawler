@@ -47,9 +47,16 @@ func getFileName(fileName string) string {
 		cleanExt = ".html"
 	}
 
-	return strings.Replace(fmt.Sprintf(
+	fileName = strings.Replace(fmt.Sprintf(
 		"%s.%s",
 		sanitize.BaseName(fileName[:len(fileName)-len(ext)]),
 		cleanExt[1:],
 	), "-", "_", -1)
+
+	if len(fileName) > 50 {
+		return fmt.Sprintf(
+			"%s.%s", fileName[:60], cleanExt)
+	}
+
+	return fileName
 }

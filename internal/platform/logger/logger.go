@@ -1,11 +1,5 @@
 package logger
 
-// #include <stdlib.h>
-//
-// void clear() {
-//  system("clear");
-// }
-import "C" //nolint:typecheck
 import (
 	_ "embed"
 	"log"
@@ -17,9 +11,9 @@ import (
 type Logger interface {
 	Error(args ...interface{})
 	Errorf(format string, args ...interface{})
+	ErrorFatal(args ...interface{})
 	Info(args ...interface{})
 	Infof(format string, args ...interface{})
-	Flush()
 	PrintHeader()
 }
 
@@ -46,6 +40,10 @@ func (l *lg) Errorf(format string, args ...interface{}) {
 	l.logger.Printf(format, args...)
 }
 
+func (l *lg) ErrorFatal(args ...interface{}) {
+	l.logger.Fatalln(args...)
+}
+
 func (l *lg) Info(args ...interface{}) {
 	l.logger.Println(args...)
 }
@@ -55,12 +53,6 @@ func (l *lg) Infof(format string, args ...interface{}) {
 }
 
 func (l *lg) PrintHeader() {
-	l.Info(string(header))
-	time.Sleep(time.Second)
-}
-
-func (l *lg) Flush() {
-	C.clear()
 	l.Info(string(header))
 	time.Sleep(time.Second)
 }

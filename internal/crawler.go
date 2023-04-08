@@ -81,10 +81,11 @@ func (c *crawler) process(ctx context.Context, url string, linksChannel chan str
 		return err
 	}
 
-	return downloadPage(resp)
+	return c.downloadPage(resp)
 }
 
-func downloadPage(resp *httpclient.Response) error {
+func (c *crawler) downloadPage(resp *httpclient.Response) error {
+	c.log.Infof("downloading site: %s\n", resp.URL)
 	return resp.Save()
 }
 
