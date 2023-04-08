@@ -55,7 +55,7 @@ func getFileName(fileName string) string {
 
 	if len(fileName) > 50 {
 		return fmt.Sprintf(
-			"%s.%s", fileName[:60], cleanExt)
+			"%s.%s", fileName[:50], cleanExt)
 	}
 
 	return fileName

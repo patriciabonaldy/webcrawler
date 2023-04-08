@@ -20,7 +20,6 @@ var log logger.Logger
 
 func Execute() {
 	log = logger.New()
-	log.PrintHeader()
 
 	root := initClientCmd()
 

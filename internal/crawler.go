@@ -16,10 +16,11 @@ import (
 )
 
 type crawler struct {
-	mux     sync.Mutex
-	client  httpclient.Client
-	crawled map[string]bool
-	log     logger.Logger
+	mux      sync.Mutex
+	client   httpclient.Client
+	crawled  map[string]bool
+	log      logger.Logger
+	saveSite bool
 }
 
 var (
@@ -29,13 +30,14 @@ var (
 )
 
 func NewCrawler(log logger.Logger) *crawler {
-	return &crawler{client: httpclient.New(), crawled: make(map[string]bool), log: log}
+	return &crawler{client: httpclient.New(), crawled: make(map[string]bool), log: log, saveSite: true}
 }
 
 func (c *crawler) Run(ctx context.Context, url string) {
+	c.log.PrintHeader()
 	linksChannel := make(chan string)
 
-	err := c.process(ctx, url, linksChannel)
+	err := c.processURL(ctx, url, linksChannel)
 	if err != nil {
 		c.log.Infof("error processing url: %s\n", url)
 	}
@@ -44,29 +46,37 @@ func (c *crawler) Run(ctx context.Context, url string) {
 	c.registerURL(url)
 
 	var wg sync.WaitGroup
-	for { //nolint:wsl
-		select {
-		case link := <-linksChannel:
-			wg.Add(1)
+	go c.process(ctx, linksChannel, &wg)
+	wg.Wait()
+}
 
-			go func(wg *sync.WaitGroup, lk string) { //nolint:wsl
+func (c *crawler) process(ctx context.Context, lkChn chan string, wg *sync.WaitGroup) {
+	defer func() {
+		if r := recover(); r != nil {
+			c.log.Info("finish proccess")
+		}
+	}()
+
+	for { //nolint:wsl
+		wg.Add(1)
+		select {
+		case link := <-lkChn:
+			func(wg *sync.WaitGroup, lk string) { //nolint:wsl
 				defer wg.Done()
 
-				errP := c.process(ctx, lk, linksChannel)
+				errP := c.processURL(ctx, lk, lkChn)
 				if errP != nil {
 					c.log.Infof("error processing sub url %s, error: %v\n", lk, errP)
 					return
 				}
-			}(&wg, link)
+			}(wg, link)
 		case <-ctx.Done():
 			return
 		}
 	}
-
-	wg.Wait()
 }
 
-func (c *crawler) process(ctx context.Context, url string, linksChannel chan string) error {
+func (c *crawler) processURL(ctx context.Context, url string, linksChannel chan string) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -86,6 +96,10 @@ func (c *crawler) process(ctx context.Context, url string, linksChannel chan str
 
 func (c *crawler) downloadPage(resp *httpclient.Response) error {
 	c.log.Infof("downloading site: %s\n", resp.URL)
+	if !c.saveSite {
+		return nil
+	}
+
 	return resp.Save()
 }
 
@@ -183,7 +197,7 @@ func (c *crawler) linksFromToken(token html.Token, url string) string {
 				continue
 			}
 
-			tl := parseURL(url, link)
+			tl := c.parseURL(url, link)
 			if tl == "" {
 				break
 			}
@@ -198,14 +212,14 @@ func (c *crawler) linksFromToken(token html.Token, url string) string {
 }
 
 func validateLink(link string) bool {
-	if strings.Contains(link, ".pdf") || strings.Contains(link, ".html") || link == "#search" || link == "#signin" || link == "/" {
+	if strings.Contains(link, ".pdf") || link == "#search" || link == "#signin" || link == "/" {
 		return false
 	}
 
 	return true
 }
 
-func parseURL(url string, link string) string {
+func (c *crawler) parseURL(url string, link string) string {
 	base := strings.TrimSuffix(url, "/")
 	if strings.Contains(link, base) {
 		return link
@@ -214,6 +228,8 @@ func parseURL(url string, link string) string {
 	if strings.HasPrefix(link, "/") {
 		return fmt.Sprintf("%s%s", base, link)
 	}
+
+	c.log.Infof("skipping link %s\n", link)
 
 	return ""
 }
